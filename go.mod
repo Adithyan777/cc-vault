@@ -1,4 +1,4 @@
-module cc-sessions
+module cc-vault
 
 go 1.25.0
 

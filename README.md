@@ -20,7 +20,7 @@ A lazygit-style TUI for browsing and managing your [Claude Code](https://claude.
 
 ```bash
 # Clone and build
-git clone https://github.com/yourusername/cc-vault.git
+git clone https://github.com/Adithyan777/cc-vault.git
 cd cc-vault
 go build -o cc-vault .
 

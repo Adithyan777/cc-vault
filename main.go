@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"syscall"
 
-	"cc-sessions/internal/tui"
+	"cc-vault/internal/tui"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

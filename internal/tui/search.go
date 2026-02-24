@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"cc-sessions/internal/claude"
+	"cc-vault/internal/claude"
 )
 
 // SearchResult holds a matching session with match count

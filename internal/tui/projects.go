@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"cc-sessions/internal/claude"
+	"cc-vault/internal/claude"
 	"fmt"
 	"strings"
 

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"cc-sessions/internal/claude"
+	"cc-vault/internal/claude"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
