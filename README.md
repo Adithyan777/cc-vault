@@ -20,17 +20,35 @@ A lazygit-style TUI for browsing and managing your [Claude Code](https://claude.
 
 ## Install
 
+**Download binary** from [GitHub Releases](https://github.com/Adithyan777/cc-vault/releases) — pick the right one for your OS/arch, then:
+
 ```bash
-# Clone and build
+tar xzf cc-vault_*.tar.gz
+sudo mv cc-vault /usr/local/bin/
+```
+
+**Or install with Go:**
+
+```bash
+go install github.com/Adithyan777/cc-vault@latest
+```
+
+**Or build from source:**
+
+```bash
 git clone https://github.com/Adithyan777/cc-vault.git
 cd cc-vault
 go build -o cc-vault .
-
-# Move to PATH
-sudo cp cc-vault /usr/local/bin/
+sudo mv cc-vault /usr/local/bin/
 ```
 
-Requires Go 1.25+ and [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed.
+Available for macOS and Linux (amd64 + arm64). Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed.
+
+**Tip:** Add a short alias to your shell config (`~/.zshrc` or `~/.bashrc`):
+
+```bash
+alias ccv="cc-vault"
+```
 
 ## Usage
 
