@@ -11,6 +11,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// version is set by GoReleaser via ldflags at build time.
+var version = "dev"
+
 func main() {
 	m := tui.NewModel()
 
