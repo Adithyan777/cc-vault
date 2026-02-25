@@ -24,7 +24,12 @@ func main() {
 	// Check if user wants to resume a session
 	if model, ok := finalModel.(tui.Model); ok {
 		if resume := model.GetResumeSession(); resume != nil {
-			// Launch claude --resume in the project directory
+			if resume.ProjectDir != "" {
+				if err := os.Chdir(resume.ProjectDir); err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to change to project dir: %v\n", err)
+				}
+			}
+
 			claudePath, err := exec.LookPath("claude")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "claude not found in PATH\n")
@@ -32,15 +37,6 @@ func main() {
 			}
 
 			args := []string{"claude", "--resume", resume.SessionID}
-
-			// Change to project directory if available
-			if resume.ProjectDir != "" {
-				if err := os.Chdir(resume.ProjectDir); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to change to project dir: %v\n", err)
-				}
-			}
-
-			// Replace current process with claude
 			if err := syscall.Exec(claudePath, args, os.Environ()); err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to exec claude: %v\n", err)
 				os.Exit(1)

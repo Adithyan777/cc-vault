@@ -54,7 +54,7 @@ type Model struct {
 	sessionIdx       int
 	previewScroll    int
 	previewLineCount int
-	previewLines     []string // cached rendered lines
+	previewCache     *PreviewCache // cached rendered lines (full + summary)
 
 	// Dialog state
 	dialog *Dialog
@@ -141,7 +141,7 @@ func (m *Model) loadPreview() {
 	sessions := m.activeSessions()
 	if m.sessionIdx < 0 || m.sessionIdx >= len(sessions) {
 		m.preview = nil
-		m.previewLines = nil
+		m.previewCache = nil
 		return
 	}
 
@@ -149,7 +149,7 @@ func (m *Model) loadPreview() {
 	preview, err := claude.LoadPreview(session.FilePath)
 	if err != nil {
 		m.preview = nil
-		m.previewLines = nil
+		m.previewCache = nil
 		return
 	}
 	m.preview = preview
@@ -157,7 +157,7 @@ func (m *Model) loadPreview() {
 
 	// Pre-render the preview lines (once per session change)
 	pc := m.currentProjectConfig()
-	m.previewLines = buildPreviewLines(preview, &session, pc, m.width/2-6)
+	m.previewCache = buildPreviewCache(preview, &session, pc, m.width/2-6)
 }
 
 func (m *Model) activeSessions() []claude.Session {
@@ -221,7 +221,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			session := m.selectedSession()
 			pc := m.currentProjectConfig()
 			previewWidth := m.width - m.width/4 - m.width/4
-			m.previewLines = buildPreviewLines(m.preview, session, pc, previewWidth-6)
+			m.previewCache = buildPreviewCache(m.preview, session, pc, previewWidth-6)
 		}
 		return m, nil
 
@@ -309,6 +309,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "tab":
 		m.activePanel = (m.activePanel + 1) % 3
+		if m.activePanel == PanelPreview {
+			m.previewScroll = 0
+		}
 		return m, nil
 
 	case "left", "h":
@@ -320,6 +323,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "right", "l":
 		if m.activePanel < PanelPreview {
 			m.activePanel++
+			if m.activePanel == PanelPreview {
+				m.previewScroll = 0
+			}
 		}
 		return m, nil
 
@@ -800,7 +806,16 @@ func (m Model) View() string {
 	if m.preview != nil {
 		previewMsgCount = m.preview.TotalMessages
 	}
-	previewPanel, previewLines := renderPreviewPanel(m.previewLines, m.activePanel == PanelPreview, previewWidth, panelHeight, m.previewScroll, previewBranch, previewMsgCount)
+	// Use summary lines when preview is inactive, full lines when active
+	var previewDisplayLines []string
+	if m.previewCache != nil {
+		if m.activePanel == PanelPreview {
+			previewDisplayLines = m.previewCache.AllLines
+		} else {
+			previewDisplayLines = BuildSummaryLines(m.previewCache, panelHeight)
+		}
+	}
+	previewPanel, previewLines := renderPreviewPanel(previewDisplayLines, m.activePanel == PanelPreview, previewWidth, panelHeight, m.previewScroll, previewBranch, previewMsgCount)
 	m.previewLineCount = previewLines
 
 	// Join panels horizontally

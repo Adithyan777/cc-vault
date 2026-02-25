@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"bufio"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,11 +55,10 @@ func DiscoverProjects() ([]Project, error) {
 			continue
 		}
 		name := entry.Name()
-		fullPath := DecodePath(name)
-		displayPath := ShortenPath(fullPath)
 
-		// Find most recent session file for sorting
+		// Find most recent session file for sorting + grab first JSONL for cwd
 		var latestMod int64
+		var firstJSONL string
 		sessionDir := filepath.Join(projectsDir, name)
 		sessionEntries, err := os.ReadDir(sessionDir)
 		if err != nil {
@@ -65,12 +66,26 @@ func DiscoverProjects() ([]Project, error) {
 		}
 		for _, se := range sessionEntries {
 			if !se.IsDir() && strings.HasSuffix(se.Name(), ".jsonl") && !strings.HasPrefix(se.Name(), "agent-") {
+				if firstJSONL == "" {
+					firstJSONL = filepath.Join(sessionDir, se.Name())
+				}
 				info, err := se.Info()
 				if err == nil && info.ModTime().Unix() > latestMod {
 					latestMod = info.ModTime().Unix()
 				}
 			}
 		}
+
+		// Read the real project path from session cwd (ground truth)
+		// Fall back to naive DecodePath if no session files
+		fullPath := ""
+		if firstJSONL != "" {
+			fullPath = readCwdFromSession(firstJSONL)
+		}
+		if fullPath == "" {
+			fullPath = DecodePath(name)
+		}
+		displayPath := ShortenPath(fullPath)
 
 		projects = append(projects, Project{
 			EncodedName:  name,
@@ -86,6 +101,30 @@ func DiscoverProjects() ([]Project, error) {
 	})
 
 	return projects, nil
+}
+
+// readCwdFromSession reads the cwd field from the first line of a JSONL session file.
+// This is the ground-truth project path, avoiding the ambiguity of DecodePath.
+func readCwdFromSession(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 256*1024), 256*1024)
+
+	// Check first 5 lines for a cwd field
+	for i := 0; i < 5 && scanner.Scan(); i++ {
+		var entry struct {
+			Cwd string `json:"cwd"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err == nil && entry.Cwd != "" {
+			return entry.Cwd
+		}
+	}
+	return ""
 }
 
 // FindProjectIndex returns the index of the project matching the given CWD, or 0

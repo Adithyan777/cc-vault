@@ -9,12 +9,28 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// buildPreviewLines renders all messages into styled lines.
-// Uses lightweight markdown rendering instead of glamour.
+// msgBlock holds rendered lines for a single message.
+type msgBlock struct {
+	lines []string
+	role  string // "user" or "assistant"
+}
+
+// PreviewCache holds rendered preview data.
+type PreviewCache struct {
+	AllLines   []string   // all messages, used when preview panel is active
+	Blocks     []msgBlock // individual message blocks for building summary
+	StatsLines []string   // footer stats lines
+	TotalMsgs  int        // total number of message blocks
+}
+
+// buildPreviewCache renders all messages into styled lines.
 // Called once per session change, cached on the model.
-func buildPreviewLines(preview *claude.PreviewData, session *claude.Session, projectConfig *claude.ProjectConfig, contentWidth int) []string {
+func buildPreviewCache(preview *claude.PreviewData, session *claude.Session, projectConfig *claude.ProjectConfig, contentWidth int) *PreviewCache {
+	empty := &PreviewCache{
+		AllLines: []string{mutedStyle.Render("  Select a session to preview")},
+	}
 	if preview == nil || session == nil {
-		return []string{mutedStyle.Render("  Select a session to preview")}
+		return empty
 	}
 
 	if contentWidth < 10 {
@@ -26,7 +42,8 @@ func buildPreviewLines(preview *claude.PreviewData, session *claude.Session, pro
 		renderWidth = 10
 	}
 
-	var lines []string
+	// Render each message into blocks of lines
+	var blocks []msgBlock
 
 	for _, msg := range preview.Messages {
 		label := userLabelStyle.Render("User")
@@ -34,18 +51,20 @@ func buildPreviewLines(preview *claude.PreviewData, session *claude.Session, pro
 			label = assistantLabelStyle.Render("Agent")
 		}
 
-		lines = append(lines, label+" "+mutedStyle.Render("───"))
+		var block []string
+		block = append(block, label+" "+mutedStyle.Render("───"))
 
-		// Lightweight markdown rendering
 		rendered := renderMarkdownLines(msg.Content, renderWidth)
 		for _, line := range rendered {
-			lines = append(lines, "   "+line)
+			block = append(block, "   "+line)
 		}
-		lines = append(lines, "")
+		block = append(block, "")
+		blocks = append(blocks, msgBlock{lines: block, role: msg.Role})
 	}
 
-	// Stats footer
-	lines = append(lines, strings.Repeat("─", contentWidth))
+	// Build stats footer
+	var statsLines []string
+	statsLines = append(statsLines, strings.Repeat("─", contentWidth))
 
 	var stats []string
 	if session.GitBranch != "" {
@@ -76,10 +95,179 @@ func buildPreviewLines(preview *claude.PreviewData, session *claude.Session, pro
 	}
 
 	if len(stats) > 0 {
-		lines = append(lines, statStyle.Render(strings.Join(stats, "  ")))
+		statsLines = append(statsLines, statStyle.Render(strings.Join(stats, "  ")))
 	}
 
-	return lines
+	// All lines: every message block + stats
+	var allLines []string
+	for _, b := range blocks {
+		allLines = append(allLines, b.lines...)
+	}
+	allLines = append(allLines, statsLines...)
+
+	return &PreviewCache{
+		AllLines:   allLines,
+		Blocks:     blocks,
+		StatsLines: statsLines,
+		TotalMsgs:  len(blocks),
+	}
+}
+
+// BuildSummaryLines creates a truncated summary showing first and last user+assistant pairs.
+// Called from View() with the actual panel height so sizing is always correct.
+func BuildSummaryLines(cache *PreviewCache, panelHeight int) []string {
+	if cache == nil || len(cache.Blocks) == 0 {
+		if cache != nil {
+			return cache.StatsLines
+		}
+		return nil
+	}
+	blocks := cache.Blocks
+	statsLines := cache.StatsLines
+	if len(blocks) == 0 {
+		return statsLines
+	}
+
+	// Find first user+assistant pair and last user+assistant pair
+	var firstPair, lastPair []msgBlock
+
+	// First pair: first user message + the assistant response after it
+	for i, b := range blocks {
+		if b.role == "user" {
+			firstPair = append(firstPair, b)
+			if i+1 < len(blocks) && blocks[i+1].role == "assistant" {
+				firstPair = append(firstPair, blocks[i+1])
+			}
+			break
+		}
+	}
+
+	// Last pair: last user message + the assistant response after it
+	for i := len(blocks) - 1; i >= 0; i-- {
+		if blocks[i].role == "user" {
+			lastPair = append(lastPair, blocks[i])
+			if i+1 < len(blocks) && blocks[i+1].role == "assistant" {
+				lastPair = append(lastPair, blocks[i+1])
+			}
+			break
+		}
+	}
+
+	// Build summary blocks, avoiding duplicates if first==last pair
+	var summaryBlocks []msgBlock
+	summaryBlocks = append(summaryBlocks, firstPair...)
+
+	// Only add last pair if it's different from first pair (check by index)
+	firstUserIdx := -1
+	lastUserIdx := -1
+	for i, b := range blocks {
+		if b.role == "user" {
+			if firstUserIdx == -1 {
+				firstUserIdx = i
+			}
+			lastUserIdx = i
+		}
+	}
+	if lastUserIdx > firstUserIdx && len(lastPair) > 0 {
+		summaryBlocks = append(summaryBlocks, lastPair...)
+	}
+
+	hasSeparator := len(blocks) > len(summaryBlocks)
+	contentHeight := panelHeight - 4
+	overhead := len(statsLines)
+	if hasSeparator {
+		overhead += 2 // separator + blank line
+	}
+	available := contentHeight - overhead
+
+	// Calculate total lines needed at full size
+	totalNeeded := 0
+	for _, b := range summaryBlocks {
+		totalNeeded += len(b.lines)
+	}
+
+	// Calculate per-block line budgets
+	// Short blocks keep their natural size, savings redistribute to longer blocks
+	budgets := make([]int, len(summaryBlocks))
+	if totalNeeded <= available {
+		for i, b := range summaryBlocks {
+			budgets[i] = len(b.lines)
+		}
+	} else {
+		remaining := available
+		blocksLeft := len(summaryBlocks)
+		assigned := make([]bool, len(summaryBlocks))
+
+		// Multi-pass: assign blocks that fit within fair share, redistribute leftovers
+		for pass := 0; pass < len(summaryBlocks); pass++ {
+			fairShare := remaining / blocksLeft
+			if fairShare < 3 {
+				fairShare = 3
+			}
+			changed := false
+			for i, b := range summaryBlocks {
+				if assigned[i] {
+					continue
+				}
+				if len(b.lines) <= fairShare {
+					budgets[i] = len(b.lines)
+					remaining -= len(b.lines)
+					blocksLeft--
+					assigned[i] = true
+					changed = true
+				}
+			}
+			if !changed {
+				break
+			}
+		}
+		// Remaining space goes to unassigned (long) blocks
+		for i := range summaryBlocks {
+			if !assigned[i] {
+				share := remaining / blocksLeft
+				if share < 3 {
+					share = 3
+				}
+				budgets[i] = share
+				remaining -= share
+				blocksLeft--
+			}
+		}
+	}
+
+	// Build summary with per-block budgets
+	var result []string
+
+	firstPairLen := len(firstPair)
+	for i, b := range summaryBlocks[:firstPairLen] {
+		result = append(result, truncateBlock(b.lines, budgets[i])...)
+	}
+
+	if hasSeparator {
+		hidden := len(blocks) - len(summaryBlocks)
+		separator := mutedStyle.Render(fmt.Sprintf("  ··· %d more messages ···", hidden))
+		result = append(result, separator, "")
+	}
+
+	if firstPairLen < len(summaryBlocks) {
+		for i, b := range summaryBlocks[firstPairLen:] {
+			result = append(result, truncateBlock(b.lines, budgets[firstPairLen+i])...)
+		}
+	}
+
+	result = append(result, statsLines...)
+	return result
+}
+
+// truncateBlock truncates a message block to maxLines, adding a "..." indicator if truncated.
+func truncateBlock(lines []string, maxLines int) []string {
+	if len(lines) <= maxLines {
+		return lines
+	}
+	truncated := make([]string, 0, maxLines)
+	truncated = append(truncated, lines[:maxLines-1]...)
+	truncated = append(truncated, mutedStyle.Render("   ..."))
+	return truncated
 }
 
 // renderPreviewPanel takes pre-built cached lines and handles scrolling + framing.
