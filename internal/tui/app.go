@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -358,6 +359,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "P":
 		return m.handlePrune()
+
+	case "c":
+		return m.handleCopyCommand()
 	}
 
 	return m, nil
@@ -625,6 +629,41 @@ func (m Model) handleExport() (tea.Model, tea.Cmd) {
 	return m, clearStatusCmd()
 }
 
+func (m Model) handleCopyCommand() (tea.Model, tea.Cmd) {
+	session := m.selectedSession()
+	if session == nil {
+		return m, nil
+	}
+
+	var parts []string
+	if m.projectIdx >= 0 && m.projectIdx < len(m.projects) {
+		parts = append(parts, fmt.Sprintf("cd '%s'", m.projects[m.projectIdx].FullPath))
+	}
+	parts = append(parts, fmt.Sprintf("claude --resume '%s'", session.ID))
+	cmd := strings.Join(parts, " && ")
+
+	// Copy to clipboard via pbcopy (macOS) or xclip (Linux)
+	var clipCmd *exec.Cmd
+	if _, err := exec.LookPath("pbcopy"); err == nil {
+		clipCmd = exec.Command("pbcopy")
+	} else if _, err := exec.LookPath("xclip"); err == nil {
+		clipCmd = exec.Command("xclip", "-selection", "clipboard")
+	} else if _, err := exec.LookPath("xsel"); err == nil {
+		clipCmd = exec.Command("xsel", "--clipboard", "--input")
+	}
+
+	if clipCmd != nil {
+		clipCmd.Stdin = strings.NewReader(cmd)
+		if err := clipCmd.Run(); err == nil {
+			m.statusMsg = "Copied: " + cmd
+			return m, clearStatusCmd()
+		}
+	}
+
+	m.statusMsg = "Clipboard not available"
+	return m, clearStatusCmd()
+}
+
 func (m Model) handleToggleSelect() (tea.Model, tea.Cmd) {
 	if m.activePanel != PanelSessions {
 		return m, nil
@@ -864,6 +903,7 @@ func renderStatusBar(width int, searchActive bool) string {
 		{"r", "rename"},
 		{"d", "delete"},
 		{"x", "export"},
+		{"c", "copy cmd"},
 		{"space", "select"},
 		{"P", "prune"},
 		{"/", "search"},

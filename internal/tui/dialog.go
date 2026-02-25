@@ -120,6 +120,7 @@ func renderHelpContent() string {
 		{"r", "Rename session"},
 		{"d", "Delete session"},
 		{"x", "Export session to markdown"},
+		{"c", "Copy resume command"},
 		{"Space", "Toggle select for bulk ops"},
 		{"D", "Bulk delete selected"},
 		{"X", "Bulk export selected"},
