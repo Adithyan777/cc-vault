@@ -5,6 +5,8 @@ A lazygit-style TUI for browsing and managing your [Claude Code](https://claude.
 ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
+![cc-vault screenshot](assets/screenshot.jpg)
+
 ## Features
 
 - **Three-panel layout** — Projects, Sessions, and Preview side-by-side
